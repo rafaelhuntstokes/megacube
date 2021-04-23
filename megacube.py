@@ -134,7 +134,7 @@ class Megacube(Metacube):
                     self.miniCubes[idx].position[2] = z
                     idx += 1
 
-class Minicube(Megacube):
+class Minicube(Metacube):
     def __init__(self):
         self.probability = 0
         self.position = np.zeros(3)  
