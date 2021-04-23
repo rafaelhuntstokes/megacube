@@ -13,40 +13,50 @@ from that mini-cube. The probability is stored within the mini-cube, and an imag
 field is created. Funky visuals. 0vbb and Co-60 (single vs multi-site) events will look different, and an ML 
 should be able to discriminate between these events with ease.  
 """
+class Metacube(object):
+    """
+    Parent class of Megacube and Minicube objects. Contains general, event specific, attributes 
+    accessible by both daughter classes.  
+    """
 
-class Megacube(object):
+    def __ini__(self, eventPosition, sideLength, numMiniCubes, calPMTs, eventTime, count):
+        self.eventPosition  = eventPosition   # fitted vertex position, 3D np array (x,y,z) 
+        self.eventTime      = eventTime       # fitted vertex time 
+        self.sideLength     = sideLength      # side length of Megacube drawn around vertex 
+        self.numMiniCubes   = numMiniCubes    # number of Minicubes along 1 axis of Megacube
+        self.calPMTs        = calibratedPMTs  # all the hit PMT objects in event  
+        self.count          = count           # event counter to track saved output 
 
-    def __init__(self, position, megaSidel, numMiniCubes, calPMTs, eventTime, count):
-        self.numMiniCubes = numMiniCubes               # num minicubes on each axis
-        self.position     = position                   # center of the Megacube (fit vertex) 
-        self.megaSidel    = megaSidel                  # side length of Megacube defining volume around fit vertex  
-        self.miniSidel    = megaSidel / numMiniCubes   # side length of minicube 
-        #print("Side Length: {}".format(self.miniSidel))
-        self.calPMTS      = calPMTs                    # all PMTs triggered by event
-        self.eventTime    = eventTime
-        self.load_ET1D()
-        self.miniCubes    = np.array([Minicube(self.miniSidel, self.calPMTS, self.eventTime,
-                            self.times, self.probs) 
-                            for i in range(numMiniCubes**3)]) # 1m^3 megacube filled with side length 2cm mincubes  
-        self.eventTime    = eventTime
+        # obtain side length of each Minicube
+        self.miniSideLength = sideLength / numMiniCubes
+
+        # obtain effective hit time PDFs for use in analysis 
+        self.times = np.load("/home/hunt-stokes/times_ET1D.npy")
+        self.probs = np.load("/home/hunt-stokes/probs_ET1D.npy")
+
+class Megacube(Metacube):
+    """
+    Megacube object contains each Minicube as an attribute and methods to run the analysis and 
+    extract the outputted probability density field.  
+    """
+
+    def populate(self):
+        """
+        Fills an array with Minicubes. 
+        """
+        
+        self.miniCubes    = np.array([Minicube() 
+                            for i in range(self.numMiniCubes**3)]) # 1m^3 megacube filled with side length 2cm mincubes  
+        
         self.fill_positions()                          # populate minicube positions 
         done = 0 
         for cube in self.miniCubes:
             cube.obtain_probability()
             done += 1
-            print("done: {}/{}".format(done, numMiniCubes**3)) 
+            print("done: {}/{}".format(done, self.numMiniCubes**3)) 
         self.plot_cubes()
         self.flatten_cube(count)
         
-    def load_ET1D(self):
-        """
-        Loads the probability and timing information and saves 
-        them as global arrays for use by the minicubes. 
-        """
-
-        self.times = np.load("/home/hunt-stokes/times_ET1D.npy")
-        self.probs = np.load("/home/hunt-stokes/probs_ET1D.npy")
-
 
     def plot_cubes(self):
         """
@@ -104,12 +114,12 @@ class Megacube(object):
         """
 
         # Megacube side length / 2 either side of center, split into minicubes
-        min_x = self.position[0] - self.megaSidel/2
-        max_x = self.position[0] + self.megaSidel/2
-        min_y = self.position[1] - self.megaSidel/2
-        max_y = self.position[1] + self.megaSidel/2
-        min_z = self.position[2] - self.megaSidel/2
-        max_z = self.position[2] + self.megaSidel/2
+        min_x = self.eventPosition[0] - self.sideLength/2
+        max_x = self.eventPosition[0] + self.sideLength/2
+        min_y = self.eventPosition[1] - self.sideLength/2
+        max_y = self.eventPosition[1] + self.sideLength/2
+        min_z = self.eventPosition[2] - self.sideLength/2
+        max_z = self.eventPosition[2] + self.sideLength/2
 
         xAxis = np.linspace(min_x, max_x, self.numMiniCubes)
         yAxis = np.linspace(min_y, max_y, self.numMiniCubes)
@@ -125,14 +135,10 @@ class Megacube(object):
                     idx += 1
 
 class Minicube(Megacube):
-    def __init__(self, miniSidel, calPMTS, eventTime, times, probs):
+    def __init__(self):
         self.probability = 0
-        self.position = np.zeros(3)    # center of the Minicube
-        self.sidel = miniSidel         # side length of Minicube   
-        self.calPMTS = calPMTS         # all the triggered PMTs 
-        self.eventTime = eventTime     # global fitted time 
-        self.times = times 
-        self.probs = probs 
+        self.position = np.zeros(3)  
+
 
     def obtain_probability(self):
         """
@@ -152,9 +158,9 @@ class Minicube(Megacube):
         # have to convert np to TVector for ROOT/RAT functions 
         position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
         #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
-        for ipmt in range(self.calPMTS.GetCount()):
+        for ipmt in range(self.calPMTs.GetCount()):
             # obtain PMT position 
-            pmt_cal = self.calPMTS.GetPMT(ipmt)
+            pmt_cal = self.calPMTs.GetPMT(ipmt)
             pmtPos = pmt_info.GetPosition(pmt_cal.GetID())
 
             # find lightpath from minicube to triggered pmt 
@@ -208,7 +214,7 @@ if __name__ == "__main__":
                 eventTime = vertex.GetTime()
                 # create the MEGACUBE 
                 x = Megacube(np.array([eventPosition[0],eventPosition[1],eventPosition[2]]), 
-                                       1000, 50, calibratedPMTs, eventTime, count)
+                                       1000, 5, calibratedPMTs, eventTime, count)
                 count += 1                
             
                 break
