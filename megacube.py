@@ -1,8 +1,9 @@
+#!/bin/bash
 import rat
 import numpy as np 
-import matplotlib.pyplot as plt 
-from mpl_toolkits import mplot3d
-from matplotlib.pyplot import colormaps as cmaps
+#import matplotlib.pyplot as plt 
+#from mpl_toolkits import mplot3d
+#from matplotlib.pyplot import colormaps as cmaps
 import ROOT
 """
 Script to implement the MEGACUBE (TM) multi-site analysis method. Fitted vertex forms the centre of a 
@@ -40,7 +41,7 @@ class Minicube(object):
 
         # have to convert np to TVector for ROOT/RAT functions 
         position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
-        print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
+        #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
         for ipmt in range(self.calPMTS.GetCount()):
             # obtain PMT position 
             pmt_cal = self.calPMTS.GetPMT(ipmt)
@@ -69,7 +70,7 @@ class Megacube(object):
         self.position     = position                   # center of the Megacube (fit vertex) 
         self.megaSidel    = megaSidel                  # side length of Megacube defining volume around fit vertex  
         self.miniSidel    = megaSidel / numMiniCubes   # side length of minicube 
-        print("Side Length: {}".format(self.miniSidel))
+        #print("Side Length: {}".format(self.miniSidel))
         self.calPMTS      = calPMTs                    # all PMTs triggered by event
         self.eventTime    = eventTime
         self.load_ET1D()
@@ -83,7 +84,7 @@ class Megacube(object):
             cube.obtain_probability()
             done += 1
             print("done: {}/{}".format(done, numMiniCubes**3)) 
-        #self.plot_cubes()
+        self.plot_cubes()
         self.flatten_cube(count)
         
     def load_ET1D(self):
@@ -101,8 +102,8 @@ class Megacube(object):
         Plots the mini cube positions.
         """
 
-        fig = plt.figure()
-        ax = plt.axes(projection='3d')
+        # fig = plt.figure()
+        # ax = plt.axes(projection='3d')
         xx = np.zeros(self.numMiniCubes**3)
         yy = np.zeros(self.numMiniCubes**3)
         zz = np.zeros(self.numMiniCubes**3)
@@ -114,28 +115,18 @@ class Megacube(object):
             probs[cubeIdx] = self.miniCubes[cubeIdx].probability
         
         # normalise the probability 
-        probs = probs / np.sum(probs)
-        # xKeep = []
-        # yKeep = []
-        # zKeep = []
-        # probKeep = []
-        # for cubeIdx in range(np.size(self.miniCubes)):
-        #     if probs[cubeIdx]: 
-        #         xKeep.append(xx[cubeIdx])
-        #         yKeep.append(yy[cubeIdx])
-        #         zKeep.append(zz[cubeIdx])
-        #         probKeep.append(probs[cubeIdx])
+        self.probs = probs / np.sum(probs)
         
-        scat = ax.scatter(xx,yy,zz, c = probs, marker = "s")
+        #scat = ax.scatter(xx,yy,zz, c = probs, marker = "s")
         #print(max(probKeep), min(probKeep))
         #ax.scatter(xKeep, yKeep, zKeep, c = probKeep)
-        np.save("./x.npy", xx)
-        np.save("./y.npy", yy)
-        np.save("./z.npy", zz)
-        np.save("./probs.npy", probs)
+        np.save("x_co_2ns.npy", xx)
+        np.save("y_co_2ns.npy", yy)
+        np.save("z_co_2ns.npy", zz)
+        np.save("probs_co_2ns.npy", probs)
         
-        fig.colorbar(scat)
-        plt.show()
+        #fig.colorbar(scat)
+        #plt.show()
 
     def flatten_cube(self, count):
         """
@@ -145,20 +136,17 @@ class Megacube(object):
         numCubes = self.numMiniCubes**3
         print(numCubes)
         print(int(np.sqrt(numCubes)) * int(np.sqrt(numCubes)))
-        flatmap = np.zeros(numCubes)
-        for cubeIdx in range(self.numMiniCubes**3):
-            flatmap[cubeIdx] = self.miniCubes[cubeIdx].probability
-
-        # reshape the map to a 2D array 
-        flatmap = np.reshape(flatmap, (250,500))
-        print(np.shape(flatmap))
-        # imshow the flatmap 
-        plt.imshow(flatmap)
-        plt.savefig("./multi_site_big{}".format(0))
+        #flatmap = np.zeros(numCubes)
+        # for cubeIdx in range(self.numMiniCubes**3):
+        #     flatmap[cubeIdx] = self.miniCubes[cubeIdx].probability
         
-
-
-
+        # reshape the map to a 2D array 
+        flatmap = np.reshape(self.probs, (50,50,50))
+        # imshow the flatmap 
+        #plt.imshow(flatmap)
+        #plt.savefig("./multi_site_big{}".format(0))
+        np.save("prob_co_cube_2ns.npy", flatmap)
+        
     def fill_positions(self):
         """
         Given Megacube central position, populate the mini-cube central positions. 
@@ -190,7 +178,7 @@ class Megacube(object):
 if __name__ == "__main__":
 
     # load the data 
-    dsEntry = rat.dsreader("/data/snoplus/hunt-stokes/multisite/cobalt_test/0/cobalt_test_4_0.root")
+    dsEntry = rat.dsreader("/data/snoplus/hunt-stokes/multisite/cobalt_test_extras/0/cobalt_test_53_0.root")
     count = 0 
     for entry, _ in dsEntry:
         # light_path = rat.utility().GetLightPathCalculator()
