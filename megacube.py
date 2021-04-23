@@ -65,7 +65,6 @@ class Minicube(object):
             self.probability += self.probs[binIdx]
 
 class Megacube(object):
-
     def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, count, path):
         self.numMiniCubes   = numMiniCubes              # num minicubes on each axis
         self.eventPosition  = eventPosition             # center of the Megacube (fit vertex) 
