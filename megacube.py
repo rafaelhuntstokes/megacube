@@ -14,55 +14,6 @@ field is created. Funky visuals. 0vbb and Co-60 (single vs multi-site) events wi
 should be able to discriminate between these events with ease.  
 """
 
-class Minicube(object):
-    def __init__(self, miniSidel, calPMTS, eventTime, times, probs):
-        self.probability = 0
-        self.position = np.zeros(3)    # center of the Minicube
-        self.sidel = miniSidel         # side length of Minicube   
-        self.calPMTS = calPMTS         # all the triggered PMTs 
-        self.eventTime = eventTime     # global fitted time 
-        self.times = times 
-        self.probs = probs 
-
-    def obtain_probability(self):
-        """
-        Function draws line to each hit PMT from center of minicube. Time of 
-        flight is obtained. Emission time is obtained via: 
-
-        T_em = T_trig - T_flight - T_event  
-
-        ET1D "effective time 1D" PDF is used to return probability photon 
-        originated in that minicube. Probability is updated. 
-        """           
-
-        light_path = rat.utility().GetLightPathCalculator()
-        group_velocity = rat.utility().GetGroupVelocity()
-        pmt_info = rat.utility().GetPMTInfo()
-
-        # have to convert np to TVector for ROOT/RAT functions 
-        position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
-        #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
-        for ipmt in range(self.calPMTS.GetCount()):
-            # obtain PMT position 
-            pmt_cal = self.calPMTS.GetPMT(ipmt)
-            pmtPos = pmt_info.GetPosition(pmt_cal.GetID())
-
-            # find lightpath from minicube to triggered pmt 
-            light_path.CalcByPosition(position, pmtPos)
-            inner_av_distance = light_path.GetDistInInnerAV()
-            av_distance = light_path.GetDistInAV()
-            water_distance = light_path.GetDistInWater()
-
-            # obtain time of flight from minicube to triggered pmt 
-            transit_time = group_velocity.CalcByDistance(inner_av_distance, av_distance, water_distance)
-
-            # obtain emission time 
-            tEm = np.array([pmt_cal.GetTime() - transit_time - eventTime])
-
-            # obtain probability from ET1D PDF 
-            binIdx = np.digitize(tEm, bins = self.times)
-            self.probability += self.probs[binIdx]
-
 class Megacube(object):
 
     def __init__(self, position, megaSidel, numMiniCubes, calPMTs, eventTime, count):
@@ -173,7 +124,54 @@ class Megacube(object):
                     self.miniCubes[idx].position[2] = z
                     idx += 1
 
-            
+class Minicube(Megacube):
+    def __init__(self, miniSidel, calPMTS, eventTime, times, probs):
+        self.probability = 0
+        self.position = np.zeros(3)    # center of the Minicube
+        self.sidel = miniSidel         # side length of Minicube   
+        self.calPMTS = calPMTS         # all the triggered PMTs 
+        self.eventTime = eventTime     # global fitted time 
+        self.times = times 
+        self.probs = probs 
+
+    def obtain_probability(self):
+        """
+        Function draws line to each hit PMT from center of minicube. Time of 
+        flight is obtained. Emission time is obtained via: 
+
+        T_em = T_trig - T_flight - T_event  
+
+        ET1D "effective time 1D" PDF is used to return probability photon 
+        originated in that minicube. Probability is updated. 
+        """           
+
+        light_path = rat.utility().GetLightPathCalculator()
+        group_velocity = rat.utility().GetGroupVelocity()
+        pmt_info = rat.utility().GetPMTInfo()
+
+        # have to convert np to TVector for ROOT/RAT functions 
+        position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
+        #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
+        for ipmt in range(self.calPMTS.GetCount()):
+            # obtain PMT position 
+            pmt_cal = self.calPMTS.GetPMT(ipmt)
+            pmtPos = pmt_info.GetPosition(pmt_cal.GetID())
+
+            # find lightpath from minicube to triggered pmt 
+            light_path.CalcByPosition(position, pmtPos)
+            inner_av_distance = light_path.GetDistInInnerAV()
+            av_distance = light_path.GetDistInAV()
+            water_distance = light_path.GetDistInWater()
+
+            # obtain time of flight from minicube to triggered pmt 
+            transit_time = group_velocity.CalcByDistance(inner_av_distance, av_distance, water_distance)
+
+            # obtain emission time 
+            tEm = np.array([pmt_cal.GetTime() - transit_time - eventTime])
+
+            # obtain probability from ET1D PDF 
+            binIdx = np.digitize(tEm, bins = self.times)
+            self.probability += self.probs[binIdx]            
 
 if __name__ == "__main__":
 
