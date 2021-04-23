@@ -1,6 +1,7 @@
 #!/bin/bash
 import rat
 import numpy as np 
+import time
 #import matplotlib.pyplot as plt 
 #from mpl_toolkits import mplot3d
 #from matplotlib.pyplot import colormaps as cmaps
@@ -65,28 +66,47 @@ class Minicube(object):
 
 class Megacube(object):
 
-    def __init__(self, position, megaSidel, numMiniCubes, calPMTs, eventTime, count):
-        self.numMiniCubes = numMiniCubes               # num minicubes on each axis
-        self.position     = position                   # center of the Megacube (fit vertex) 
-        self.megaSidel    = megaSidel                  # side length of Megacube defining volume around fit vertex  
-        self.miniSidel    = megaSidel / numMiniCubes   # side length of minicube 
-        #print("Side Length: {}".format(self.miniSidel))
-        self.calPMTS      = calPMTs                    # all PMTs triggered by event
-        self.eventTime    = eventTime
+    def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, count, path):
+        self.numMiniCubes   = numMiniCubes              # num minicubes on each axis
+        self.eventPosition  = eventPosition             # center of the Megacube (fit vertex) 
+        self.eventTime      = eventTime                 # vertex fitted time of event
+        self.megaSidel      = megaSidel                 # side length of Megacube defining volume around fit vertex  
+        self.miniSidel      = megaSidel / numMiniCubes  # side length of minicube 
+        self.calPMTS        = calPMTs                   # all PMTs triggered by event
+        self.eventTime      = eventTime
+        self.probs          = None                      # ET1D PDF probabilities (y axis)
+        self.times          = None                      # ET1D PDF times (x axis)
+        self.savePath       = path                      # path to save output arrays 
+        self.count          = count                     # ID of specific Megacube used in save function 
+
+        # load the ET1D PDF 
         self.load_ET1D()
-        self.miniCubes    = np.array([Minicube(self.miniSidel, self.calPMTS, self.eventTime,
-                            self.times, self.probs) 
-                            for i in range(numMiniCubes**3)]) # 1m^3 megacube filled with side length 2cm mincubes  
-        self.eventTime    = eventTime
-        self.fill_positions()                          # populate minicube positions 
+        
+        # create all Minicube objects contained by Megacube 
+        self.miniCubes = np.array([Minicube(self.miniSidel, self.calPMTS, self.eventTime,
+                         self.times, self.probs) for i in range(numMiniCubes**3)]) 
+        
+
+        # populate position attribute for every Minicube object 
+        self.fill_positions()
+        
+        # populate probability attribute of every Minicube  
+        self.fill_probabilities()
+        
+        # save the Megacube 
+        self.save_cube()
+    
+    def fill_probabilities(self):
+        """
+        For each Minicube, fill with probability photons originated from its position.
+        """
+        
         done = 0 
         for cube in self.miniCubes:
             cube.obtain_probability()
             done += 1
-            print("done: {}/{}".format(done, numMiniCubes**3)) 
-        self.plot_cubes()
-        self.flatten_cube(count)
-        
+            print("done: {}/{}".format(done, self.numMiniCubes**3)) 
+
     def load_ET1D(self):
         """
         Loads the probability and timing information and saves 
@@ -97,13 +117,11 @@ class Megacube(object):
         self.probs = np.load("/home/hunt-stokes/probs_ET1D.npy")
 
 
-    def plot_cubes(self):
+    def save_cube(self):
         """
         Plots the mini cube positions.
         """
 
-        # fig = plt.figure()
-        # ax = plt.axes(projection='3d')
         xx = np.zeros(self.numMiniCubes**3)
         yy = np.zeros(self.numMiniCubes**3)
         zz = np.zeros(self.numMiniCubes**3)
@@ -117,35 +135,11 @@ class Megacube(object):
         # normalise the probability 
         self.probs = probs / np.sum(probs)
         
-        #scat = ax.scatter(xx,yy,zz, c = probs, marker = "s")
-        #print(max(probKeep), min(probKeep))
-        #ax.scatter(xKeep, yKeep, zKeep, c = probKeep)
-        np.save("x_co_2ns.npy", xx)
-        np.save("y_co_2ns.npy", yy)
-        np.save("z_co_2ns.npy", zz)
-        np.save("probs_co_2ns.npy", probs)
-        
-        #fig.colorbar(scat)
-        #plt.show()
-
-    def flatten_cube(self, count):
-        """
-        Takes a 3D cube and produces a flattened image. 
-        """
-
-        numCubes = self.numMiniCubes**3
-        print(numCubes)
-        print(int(np.sqrt(numCubes)) * int(np.sqrt(numCubes)))
-        #flatmap = np.zeros(numCubes)
-        # for cubeIdx in range(self.numMiniCubes**3):
-        #     flatmap[cubeIdx] = self.miniCubes[cubeIdx].probability
-        
-        # reshape the map to a 2D array 
-        flatmap = np.reshape(self.probs, (50,50,50))
-        # imshow the flatmap 
-        #plt.imshow(flatmap)
-        #plt.savefig("./multi_site_big{}".format(0))
-        np.save("prob_co_cube_2ns.npy", flatmap)
+        # save 
+        np.save(self.savePath + "/x_{}ttest".format(self.count), xx)
+        np.save(self.savePath + "/y_{}ttest".format(self.count), yy)
+        np.save(self.savePath + "/z_{}ttest".format(self.count), zz)
+        np.save(self.savePath + "/probs_{}ttest".format(self.count), probs)
         
     def fill_positions(self):
         """
@@ -153,12 +147,12 @@ class Megacube(object):
         """
 
         # Megacube side length / 2 either side of center, split into minicubes
-        min_x = self.position[0] - self.megaSidel/2
-        max_x = self.position[0] + self.megaSidel/2
-        min_y = self.position[1] - self.megaSidel/2
-        max_y = self.position[1] + self.megaSidel/2
-        min_z = self.position[2] - self.megaSidel/2
-        max_z = self.position[2] + self.megaSidel/2
+        min_x = self.eventPosition[0] - self.megaSidel/2
+        max_x = self.eventPosition[0] + self.megaSidel/2
+        min_y = self.eventPosition[1] - self.megaSidel/2
+        max_y = self.eventPosition[1] + self.megaSidel/2
+        min_z = self.eventPosition[2] - self.megaSidel/2
+        max_z = self.eventPosition[2] + self.megaSidel/2
 
         xAxis = np.linspace(min_x, max_x, self.numMiniCubes)
         yAxis = np.linspace(min_y, max_y, self.numMiniCubes)
@@ -181,9 +175,6 @@ if __name__ == "__main__":
     dsEntry = rat.dsreader("/data/snoplus/hunt-stokes/multisite/cobalt_test_extras/0/cobalt_test_53_0.root")
     count = 0 
     for entry, _ in dsEntry:
-        # light_path = rat.utility().GetLightPathCalculator()
-        # group_velocity = rat.utility().GetGroupVelocity()
-        # pmt_info = rat.utility().GetPMTInfo()
 
         # ignore re-triggers 
         if entry.GetEVCount() > 0:
@@ -209,8 +200,11 @@ if __name__ == "__main__":
                 calibratedPMTs = event.GetCalPMTs()
                 eventTime = vertex.GetTime()
                 # create the MEGACUBE 
+                start = time.time()
                 x = Megacube(np.array([eventPosition[0],eventPosition[1],eventPosition[2]]), 
-                                       1000, 50, calibratedPMTs, eventTime, count)
+                                       1000, 10, calibratedPMTs, eventTime, "/home/hunt-stokes/megacube/data", count)
+                end = time.time()
+                print("Runtime: ", end - start) 
                 count += 1                
             
                 break
