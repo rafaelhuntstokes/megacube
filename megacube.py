@@ -2,6 +2,7 @@
 import rat
 import numpy as np 
 import time
+from math import exp
 #import matplotlib.pyplot as plt 
 #from mpl_toolkits import mplot3d
 #from matplotlib.pyplot import colormaps as cmaps
@@ -43,6 +44,7 @@ class Minicube(object):
         # have to convert np to TVector for ROOT/RAT functions 
         position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
         #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
+        start = time.time()
         for ipmt in range(self.calPMTS.GetCount()):
             # obtain PMT position 
             pmt_cal = self.calPMTS.GetPMT(ipmt)
@@ -53,7 +55,8 @@ class Minicube(object):
             inner_av_distance = light_path.GetDistInInnerAV()
             av_distance = light_path.GetDistInAV()
             water_distance = light_path.GetDistInWater()
-
+            totalDistance = inner_av_distance + av_distance + water_distance
+            print("inner distance is: ", inner_av_distance)
             # obtain time of flight from minicube to triggered pmt 
             transit_time = group_velocity.CalcByDistance(inner_av_distance, av_distance, water_distance)
 
@@ -62,10 +65,15 @@ class Minicube(object):
 
             # obtain probability from ET1D PDF 
             binIdx = np.digitize(tEm, bins = self.times)
-            self.probability += self.probs[binIdx]
 
+            # probability incorporates photon attenuation, ET1D PDF and solid angle 
+            self.probability += self.probs[binIdx] * exp(-totalDistance/40000) * (204/totalDistance**2) 
+        
+        stop = time.time()
+        print("pmt loop time: ", stop - start)
+        
 class Megacube(object):
-    def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, count, path):
+    def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, path, count):
         self.numMiniCubes   = numMiniCubes              # num minicubes on each axis
         self.eventPosition  = eventPosition             # center of the Megacube (fit vertex) 
         self.eventTime      = eventTime                 # vertex fitted time of event
@@ -85,26 +93,52 @@ class Megacube(object):
         self.miniCubes = np.array([Minicube(self.miniSidel, self.calPMTS, self.eventTime,
                          self.times, self.probs) for i in range(numMiniCubes**3)]) 
         
+        # Megacube side length / 2 either side of center, split into minicubes
+        min_x = self.eventPosition[0] - self.megaSidel/2
+        max_x = self.eventPosition[0] + self.megaSidel/2
+        min_y = self.eventPosition[1] - self.megaSidel/2
+        max_y = self.eventPosition[1] + self.megaSidel/2
+        min_z = self.eventPosition[2] - self.megaSidel/2
+        max_z = self.eventPosition[2] + self.megaSidel/2
 
-        # populate position attribute for every Minicube object 
-        self.fill_positions()
+        xAxis = np.linspace(min_x, max_x, self.numMiniCubes)
+        yAxis = np.linspace(min_y, max_y, self.numMiniCubes)
+        zAxis = np.linspace(min_z, max_z, self.numMiniCubes)
+
+        # meshgrid this 
+        xx, yy, zz = np.meshgrid(xAxis, yAxis, zAxis)
+
+        # flatten meshed arrays 
+        xx = np.ravel(xx)
+        yy = np.ravel(yy)
+        zz = np.ravel(zz)
+        done = 0 
+
+
+        for cube in self.miniCubes:
+            # populate position attribute for every Minicube object 
+            cube.position = np.array([xx[done], yy[done], zz[done]])
         
-        # populate probability attribute of every Minicube  
-        self.fill_probabilities()
-        
+            # populate probability attribute of every Minicube  
+            self.fill_probabilities(cube)
+            
+            done += 1 
+
         # save the Megacube 
         self.save_cube()
     
-    def fill_probabilities(self):
+    def fill_probabilities(self, cube):
         """
         For each Minicube, fill with probability photons originated from its position.
         """
         
-        done = 0 
-        for cube in self.miniCubes:
-            cube.obtain_probability()
-            done += 1
-            print("done: {}/{}".format(done, self.numMiniCubes**3)) 
+        #done = 0 
+        #for cube in self.miniCubes:
+        #    cube.obtain_probability()
+        #    done += 1
+        #    print("done: {}/{}".format(done, self.numMiniCubes**3)) 
+
+        cube.obtain_probability()
 
     def load_ET1D(self):
         """
@@ -114,7 +148,6 @@ class Megacube(object):
 
         self.times = np.load("/home/hunt-stokes/times_ET1D.npy")
         self.probs = np.load("/home/hunt-stokes/probs_ET1D.npy")
-
 
     def save_cube(self):
         """
@@ -139,32 +172,6 @@ class Megacube(object):
         np.save(self.savePath + "/y_{}ttest".format(self.count), yy)
         np.save(self.savePath + "/z_{}ttest".format(self.count), zz)
         np.save(self.savePath + "/probs_{}ttest".format(self.count), probs)
-        
-    def fill_positions(self):
-        """
-        Given Megacube central position, populate the mini-cube central positions. 
-        """
-
-        # Megacube side length / 2 either side of center, split into minicubes
-        min_x = self.eventPosition[0] - self.megaSidel/2
-        max_x = self.eventPosition[0] + self.megaSidel/2
-        min_y = self.eventPosition[1] - self.megaSidel/2
-        max_y = self.eventPosition[1] + self.megaSidel/2
-        min_z = self.eventPosition[2] - self.megaSidel/2
-        max_z = self.eventPosition[2] + self.megaSidel/2
-
-        xAxis = np.linspace(min_x, max_x, self.numMiniCubes)
-        yAxis = np.linspace(min_y, max_y, self.numMiniCubes)
-        zAxis = np.linspace(min_z, max_z, self.numMiniCubes)
-
-        idx = 0 
-        for x in xAxis: 
-            for y in yAxis:
-                for z in zAxis:
-                    self.miniCubes[idx].position[0] = x
-                    self.miniCubes[idx].position[1] = y
-                    self.miniCubes[idx].position[2] = z
-                    idx += 1
 
             
 
@@ -206,4 +213,5 @@ if __name__ == "__main__":
                 print("Runtime: ", end - start) 
                 count += 1                
             
-                break
+                if count == 1:
+                    break 
