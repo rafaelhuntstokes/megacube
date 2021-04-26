@@ -2,7 +2,9 @@
 import rat
 import numpy as np 
 import time
-from math import exp
+from math import exp, pi 
+import os.path
+from os import path
 #import matplotlib.pyplot as plt 
 #from mpl_toolkits import mplot3d
 #from matplotlib.pyplot import colormaps as cmaps
@@ -34,7 +36,8 @@ class Minicube(object):
         T_em = T_trig - T_flight - T_event  
 
         ET1D "effective time 1D" PDF is used to return probability photon 
-        originated in that minicube. Probability is updated. 
+        originated in that minicube. Photon attenuation length and solid angle to 
+        each PMT is also calculated. Probability is updated. 
         """           
 
         light_path = rat.utility().GetLightPathCalculator()
@@ -44,7 +47,7 @@ class Minicube(object):
         # have to convert np to TVector for ROOT/RAT functions 
         position = ROOT.std.TVector3(self.position[0], self.position[1], self.position[2])
         #print("There are {} triggered PMTs.".format(self.calPMTS.GetCount()))
-        start = time.time()
+        #start = time.time()
         for ipmt in range(self.calPMTS.GetCount()):
             # obtain PMT position 
             pmt_cal = self.calPMTS.GetPMT(ipmt)
@@ -56,7 +59,7 @@ class Minicube(object):
             av_distance = light_path.GetDistInAV()
             water_distance = light_path.GetDistInWater()
             totalDistance = inner_av_distance + av_distance + water_distance
-            print("inner distance is: ", inner_av_distance)
+            #print("inner distance is: ", inner_av_distance)
             # obtain time of flight from minicube to triggered pmt 
             transit_time = group_velocity.CalcByDistance(inner_av_distance, av_distance, water_distance)
 
@@ -67,13 +70,13 @@ class Minicube(object):
             binIdx = np.digitize(tEm, bins = self.times)
 
             # probability incorporates photon attenuation, ET1D PDF and solid angle 
-            self.probability += self.probs[binIdx] * exp(-totalDistance/40000) * (204/totalDistance**2) 
+            self.probability += self.probs[binIdx] * exp(-totalDistance/40000) * (1/totalDistance**2) #((72361*pi/40) / totalDistance**2) 
         
-        stop = time.time()
-        print("pmt loop time: ", stop - start)
+        #stop = time.time()
+        #print("pmt loop time: ", stop - start)
         
 class Megacube(object):
-    def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, path, count):
+    def __init__(self, eventPosition, megaSidel, numMiniCubes, calPMTs, eventTime, path, count, type):
         self.numMiniCubes   = numMiniCubes              # num minicubes on each axis
         self.eventPosition  = eventPosition             # center of the Megacube (fit vertex) 
         self.eventTime      = eventTime                 # vertex fitted time of event
@@ -85,13 +88,20 @@ class Megacube(object):
         self.times          = None                      # ET1D PDF times (x axis)
         self.savePath       = path                      # path to save output arrays 
         self.count          = count                     # ID of specific Megacube used in save function 
+        self.type           = type                      # type of event creating cube for saving
 
         # load the ET1D PDF 
+        s1 = time.time()
         self.load_ET1D()
+        e1 = time.time()
+        print("Loading PDF took: ", e1-s1)
         
         # create all Minicube objects contained by Megacube 
+        s2 = time.time()
         self.miniCubes = np.array([Minicube(self.miniSidel, self.calPMTS, self.eventTime,
                          self.times, self.probs) for i in range(numMiniCubes**3)]) 
+        e2 = time.time()
+        print("Creating mini-cubes took: ", e2-s2)
         
         # Megacube side length / 2 either side of center, split into minicubes
         min_x = self.eventPosition[0] - self.megaSidel/2
@@ -114,31 +124,45 @@ class Megacube(object):
         zz = np.ravel(zz)
         done = 0 
 
-
+        s3 = time.time()
         for cube in self.miniCubes:
             # populate position attribute for every Minicube object 
             cube.position = np.array([xx[done], yy[done], zz[done]])
         
             # populate probability attribute of every Minicube  
-            self.fill_probabilities(cube)
+            #self.fill_probabilities(cube)
+            cube.obtain_probability()
             
             done += 1 
+        e3 = time.time()
+        print("Filling probability took: ", e3-s3)
 
+        # normalise the probability 
+        s4 = time.time()
+        total_prob = sum([cube.probability for cube in self.miniCubes])
+        for cube in self.miniCubes:
+            cube.probability /= total_prob
+        e4 = time.time()
+        print("Normalising took: ", e4-s4)
+
+        s5 = time.time()
         # save the Megacube 
         self.save_cube()
+        e5 = time.time()
+        print("Saving cube took: ", e5-s5)
     
-    def fill_probabilities(self, cube):
-        """
-        For each Minicube, fill with probability photons originated from its position.
-        """
+    # def fill_probabilities(self, cube):
+    #     """
+    #     For each Minicube, fill with probability photons originated from its position.
+    #     """
         
-        #done = 0 
-        #for cube in self.miniCubes:
-        #    cube.obtain_probability()
-        #    done += 1
-        #    print("done: {}/{}".format(done, self.numMiniCubes**3)) 
+    #     #done = 0 
+    #     #for cube in self.miniCubes:
+    #     #    cube.obtain_probability()
+    #     #    done += 1
+    #     #    print("done: {}/{}".format(done, self.numMiniCubes**3)) 
 
-        cube.obtain_probability()
+    #     cube.obtain_probability()
 
     def load_ET1D(self):
         """
@@ -165,15 +189,15 @@ class Megacube(object):
             probs[cubeIdx] = self.miniCubes[cubeIdx].probability
         
         # normalise the probability 
-        self.probs = probs / np.sum(probs)
+        # self.probs = probs / np.sum(probs)
         
         # save 
-        np.save(self.savePath + "/x_{}ttest".format(self.count), xx)
-        np.save(self.savePath + "/y_{}ttest".format(self.count), yy)
-        np.save(self.savePath + "/z_{}ttest".format(self.count), zz)
-        np.save(self.savePath + "/probs_{}ttest".format(self.count), probs)
-
-            
+        if path.isdir(self.savePath + "/" + self.type) == False:
+            os.mkdir(self.savePath + "/" + self.type)
+        np.save(self.savePath + "/" + self.type + "/x_{}ttest".format(self.count), xx)
+        np.save(self.savePath + "/" + self.type + "/y_{}ttest".format(self.count), yy)
+        np.save(self.savePath + "/" + self.type + "/z_{}ttest".format(self.count), zz)
+        np.save(self.savePath + "/" + self.type + "/probs_{}ttest".format(self.count), probs)
 
 if __name__ == "__main__":
 
@@ -208,9 +232,11 @@ if __name__ == "__main__":
                 # create the MEGACUBE 
                 start = time.time()
                 x = Megacube(np.array([eventPosition[0],eventPosition[1],eventPosition[2]]), 
-                                       1000, 10, calibratedPMTs, eventTime, "/home/hunt-stokes/megacube/data", count)
+                                       1000, 10, calibratedPMTs, eventTime, "/home/hunt-stokes/megacube/data", 
+                                       count, "tester")
                 end = time.time()
-                print("Runtime: ", end - start) 
+                print("Total Runtime: ", end - start) 
+                print("##### NEW CUBE #####")
                 count += 1                
             
                 if count == 1:
